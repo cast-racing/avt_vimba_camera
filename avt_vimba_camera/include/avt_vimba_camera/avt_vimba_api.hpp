@@ -40,6 +40,8 @@
 #include <sensor_msgs/image_encodings.hpp>
 #include <sensor_msgs/fill_image.hpp>
 
+#include <rclcpp_components/register_node_macro.hpp>
+
 #include <string>
 #include <map>
 
