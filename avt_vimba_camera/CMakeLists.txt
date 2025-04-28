@@ -69,6 +69,26 @@ ament_auto_add_executable(trigger_exec
   src/exec/trigger_exec.cpp
 )
 
+# Composable
+ament_auto_add_library(mono_camera_component SHARED
+  src/mono_camera_node.cpp
+  src/avt_vimba_camera.cpp
+  src/frame_observer.cpp
+)
+add_dependencies_and_linkings(mono_camera_component)
+
+rclcpp_components_register_node(
+  mono_camera_component
+    PLUGIN "avt_vimba_camera::MonoCameraNode"
+    EXECUTABLE mono_camera
+)
+
+install(TARGETS mono_camera_component
+        LIBRARY DESTINATION lib
+        RUNTIME DESTINATION bin
+)
+target_compile_options(mono_camera_component PRIVATE -O3)
+
 #############
 ## Install ##
 #############
