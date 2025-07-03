@@ -98,6 +98,9 @@ public:
   int getImageHeight();
   int getSensorWidth();
   int getSensorHeight();
+  double getExposureTime();
+  // double getGain();
+  
   int getBinningOrDecimationX();
   int getBinningOrDecimationY();
   sensor_msgs::msg::CameraInfo getCameraInfo();
@@ -144,6 +147,7 @@ private:
   diagnostic_updater::Updater updater_;
   std::string diagnostic_msg_;
   rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr param_sub_;
+  rclcpp::Publisher<iac_msgs::msg::ImgMetaData>::SharedPtr imgmetadata_pub_;
 
   CameraPtr openCamera(const std::string& id_str);
 

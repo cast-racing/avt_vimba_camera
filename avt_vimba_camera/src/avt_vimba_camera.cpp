@@ -36,6 +36,7 @@
 
 #include <rclcpp/rclcpp.hpp>
 #include <diagnostic_msgs/msg/diagnostic_status.hpp>
+#include <iac_msgs/msg/img_meta_data.hpp
 
 #include <signal.h>
 
@@ -64,6 +65,8 @@ AvtVimbaCamera::AvtVimbaCamera(rclcpp::Node::SharedPtr owner_node)
 
   updater_.setHardwareID("unknown");
   updater_.add(owner_node->get_name(), this, &AvtVimbaCamera::getCurrentState);
+
+  imgmetadata_pub_ = nh_->create_publisher<iac_msgs::msg::ImgMetaData>('/sensors/camera/image_meta_data', rclcpp::QoS(10));
 }
 
 void AvtVimbaCamera::start(const std::string& ip_str, const std::string& guid_str, const std::string& frame_id,
@@ -280,6 +283,17 @@ void AvtVimbaCamera::frameCallback(const FramePtr vimba_frame_ptr)
   camera_state_ = OK;
   diagnostic_msg_ = "Camera operating normally";
 
+
+  double exposure_time = getExposureTime();
+  if (exposure_time > 0.0) //filters out failed cases with value -1
+  {
+    iac_msgs::msg::ImgMetaData metadata_msg;
+    metadata_msg.header.stamp = nh_->now(); // should better add timestamp from image header
+    metadata_msg.exposure_time = exposure_time;
+    imgmetadata_pub_->publish(metadata_msg);
+  }
+  
+
   // Call the callback implemented by other classes
   std::thread thread_callback = std::thread(userFrameCallback, vimba_frame_ptr);
   thread_callback.join();
@@ -360,6 +374,22 @@ int AvtVimbaCamera::getBinningOrDecimationY()
 
   return std::max(binning, decimation);
 }
+
+// Add exposure (and gain) funtions using GenICam
+double AvtVimbaCamera::getExposureTime()
+{
+  double exposure_time = -1;
+  getFeatureValue("ExposureTime", exposure_time);
+  return exposure_time;
+}
+
+// double AvtVimbaCamera::getGain()
+// {
+//   double gain = -1;
+//   getFeatureValue("Gain", gain);
+//   return gain;
+// }
+
 
 sensor_msgs::msg::CameraInfo AvtVimbaCamera::getCameraInfo()
 {
