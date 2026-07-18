@@ -57,6 +57,8 @@ AvtVimbaCamera::AvtVimbaCamera(rclcpp::Node::SharedPtr owner_node)
   // Features that affect the camera_info parameters
   cam_info_features_.emplace("Width");
   cam_info_features_.emplace("Height");
+  cam_info_features_.emplace("OffsetX");
+  cam_info_features_.emplace("OffsetY");
   cam_info_features_.emplace("BinningHorizontal");
   cam_info_features_.emplace("BinningVertical");
   cam_info_features_.emplace("DecimationHorizontal");
@@ -948,31 +950,73 @@ void AvtVimbaCamera::updateCameraInfo()
 {
   sensor_msgs::msg::CameraInfo ci = info_man_->getCameraInfo();
 
-  // Set the operational parameters in CameraInfo (binning, ROI)
+  // Preserve the loaded calibration model and only update runtime image geometry.
   int binning_or_decimation_x = getBinningOrDecimationX();
   int binning_or_decimation_y = getBinningOrDecimationY();
-
-  // Set the operational parameters in CameraInfo (binning, ROI)
+  int image_width = getImageWidth();
+  int image_height = getImageHeight();
   int sensor_width = getSensorWidth();
   int sensor_height = getSensorHeight();
+  int offset_x = 0;
+  int offset_y = 0;
 
-  if (sensor_width == -1 || sensor_height == -1)
+  getFeatureValue("OffsetX", offset_x);
+  getFeatureValue("OffsetY", offset_y);
+
+  if (image_width == -1 || image_height == -1)
   {
-    RCLCPP_ERROR(nh_->get_logger(), "Could not determine sensor pixel dimensions, camera_info will be wrong");
+    RCLCPP_ERROR(nh_->get_logger(), "Could not determine image dimensions, camera_info will be wrong");
+    return;
   }
 
-  ci.width = sensor_width;
-  ci.height = sensor_height;
+  if (binning_or_decimation_x < 1)
+  {
+    binning_or_decimation_x = 1;
+  }
+  if (binning_or_decimation_y < 1)
+  {
+    binning_or_decimation_y = 1;
+  }
+
+  const bool calibration_matches_sensor =
+      sensor_width > 0 && sensor_height > 0 && ci.width == static_cast<uint32_t>(sensor_width) &&
+      ci.height == static_cast<uint32_t>(sensor_height);
+  const bool calibration_matches_stream =
+      ci.width == static_cast<uint32_t>(image_width) && ci.height == static_cast<uint32_t>(image_height);
+
+  // If the loaded calibration already matches the active stream, keep its width/height
+  // and intrinsics untouched. If it matches the full sensor instead, describe the active
+  // stream as an ROI of that calibration.
+  if (!calibration_matches_sensor)
+  {
+    ci.width = image_width;
+    ci.height = image_height;
+  }
+
   ci.binning_x = binning_or_decimation_x;
   ci.binning_y = binning_or_decimation_y;
 
-  // ROI is in unbinned coordinates, need to scale up
-  ci.roi.width = getImageWidth() * binning_or_decimation_x;
-  ci.roi.height = getImageHeight() * binning_or_decimation_y;
-  ci.roi.x_offset = 0 * binning_or_decimation_x;
-  ci.roi.y_offset = 0 * binning_or_decimation_y;
+  if (calibration_matches_sensor)
+  {
+    // ROI is expressed in unbinned sensor coordinates when calibration refers to the
+    // full sensor image.
+    ci.roi.width = image_width * binning_or_decimation_x;
+    ci.roi.height = image_height * binning_or_decimation_y;
+    ci.roi.x_offset = offset_x * binning_or_decimation_x;
+    ci.roi.y_offset = offset_y * binning_or_decimation_y;
+  }
+  else
+  {
+    ci.roi.width = image_width * binning_or_decimation_x;
+    ci.roi.height = image_height * binning_or_decimation_y;
+    ci.roi.x_offset = 0;
+    ci.roi.y_offset = 0;
+  }
 
-  bool roi_is_full_image = (ci.roi.width == ci.width && ci.roi.height == ci.height);
+  bool roi_is_full_image = calibration_matches_stream ||
+                           (ci.roi.x_offset == 0 && ci.roi.y_offset == 0 &&
+                            ci.roi.width == ci.width * binning_or_decimation_x &&
+                            ci.roi.height == ci.height * binning_or_decimation_y);
   ci.roi.do_rectify = !roi_is_full_image;
 
   // push the changes to manager
